@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Frencoin Web Wallet</title>
+    <!--
+      This file implements a simple, client‑side web wallet for Frencoin.
+      It leverages the open source bitcoinjs‑lib and bip39 libraries to
+      generate a 12 word BIP39 mnemonic, derive a hierarchical deterministic
+      (HD) keychain for Frencoin (coin type 42066), and produce a P2PKH
+      receiving address.  All cryptographic operations happen in the
+      browser – there is no server component and nothing is ever sent
+      across the network.  Deploying this HTML file to any static web
+      hosting platform (e.g. GitHub Pages, Netlify, Vercel, IPFS) is
+      sufficient to provide users with a basic receive‑only wallet.
+    -->
+    <!-- Bootstrap for basic styling -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@3.4.1/dist/css/bootstrap.min.css"
+      integrity="sha384-aKUtEp0Y5MIRCdKfMuAdCoAHJn+6kFKrVgkA9c2EoCzMc3rh+fcgA/dc5c1pSKfj"
+      crossorigin="anonymous"
+    />
+    <style>
+      body {
+        padding-top: 40px;
+        background-color: #f5f5f5;
+      }
+      .wallet-container {
+        max-width: 600px;
+        margin: 0 auto;
+        background: #fff;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .mnemonic {
+        font-family: monospace;
+        word-break: break-word;
+      }
+      .address {
+        font-family: monospace;
+        font-size: 1.2em;
+        color: #2c3e50;
+      }
+      #qrcode {
+        margin-top: 20px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="wallet-container">
+        <h2 class="text-center">Frencoin Web Wallet</h2>
+        <p>
+          This lightweight wallet runs entirely in your browser.  Click the
+          button below to generate a new 12‑word recovery phrase and the
+          first receiving address for your Frencoin account.
+        </p>
+        <div class="text-center">
+          <button id="generateBtn" class="btn btn-primary">
+            Generate New Wallet
+          </button>
+        </div>
+        <div class="form-group" style="margin-top:30px;">
+          <label for="restoreInput">Restore from recovery phrase</label>
+          <textarea id="restoreInput" class="form-control" rows="2"
+            placeholder="Enter your 12‑word mnemonic"></textarea>
+          <button id="restoreBtn" class="btn btn-success" style="margin-top:10px;">
+            Restore Wallet
+          </button>
+        </div>
+
+        <div id="wallet" class="hidden" style="margin-top: 30px;">
+          <h4>Recovery phrase (BIP39)</h4>
+          <!-- The recovery phrase is hidden by default.  Click the reveal
+               button to show it. -->
+          <button id="revealMnemonicBtn" type="button" class="btn btn-link" style="padding-left:0;">Reveal recovery phrase</button>
+          <p class="mnemonic" id="mnemonic" style="display:none;"></p>
+          <p class="alert alert-warning">
+            <strong>Important:</strong> Write these 12 words down and keep
+            them safe. Anyone with access to your recovery phrase can spend
+            your Frencoins.  Losing the phrase means losing access to your
+            funds forever.
+          </p>
+          <h4>Receiving address</h4>
+          <p class="address" id="address"></p>
+          <div id="qrcode"></div>
+          <div class="form-group" style="margin-top:20px;">
+            <label for="wif">Private key (WIF)</label>
+            <!-- The private key is hidden by default.  Click the reveal
+                 button to show it. -->
+            <button id="revealWIFBtn" type="button" class="btn btn-link" style="padding-left:0;">Reveal private key</button>
+            <input
+              type="text"
+              id="wif"
+              class="form-control"
+              readonly
+              style="display:none;"
+            />
+          </div>
+          <p class="text-muted">
+            The WIF is derived from your recovery phrase. It is hidden by default
+            and is not needed if you have your mnemonic.  Only reveal it when
+            necessary and keep it secure.
+          </p>
+
+          <!-- Send coins section -->
+          <!--
+            Removed per user request.  At the time of this update the Solus
+            FREN Explorer API does not provide an endpoint for broadcasting
+            transactions.  Implementing send functionality would require
+            integrating with an ElectrumX server or a full Frencoin node via
+            RPC, which cannot be done from a purely static site without
+            additional infrastructure.  Users should use a full node or
+            Electrum‑compatible wallet to send funds.
+          -->
+
+          <!-- Balance and transaction information will be populated after
+               generating or restoring a wallet.  The explorer API query
+               happens asynchronously and updates these elements when
+               complete. -->
+          <h4>Address balance</h4>
+          <p id="balance">—</p>
+          <h4>Recent transactions</h4>
+          <div class="table-responsive">
+            <table id="txTable" class="table table-striped">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Amount (FREN)</th>
+                  <th>Type</th>
+                  <th>Transaction ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- rows will be inserted here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dependencies -->
+    <!--
+      Local copies of the libraries are included alongside this HTML file.
+      The Buffer polyfill provides a browser‑compatible implementation of
+      Node's Buffer API, which bitcoinjs‑lib depends on.  The bitcoinjs
+      bundle is the browserified BitcoinJS library that exposes a global
+      `bitcoinjs` namespace.  The QR code generator draws a QR code for
+      the receiving address.
+    -->
+    <!--
+      Buffer polyfill
+      ---------------
+      bitcoinjs‑lib depends on Node's Buffer API, which is not available
+      natively in browsers.  We load a browser‑compatible polyfill from
+      jsDelivr.  This script defines a global `Buffer` with the full API
+      needed by bitcoinjs.  Using a CDN here avoids the complexities of
+      bundling the polyfill ourselves.
+    -->
+    <!-- Load the browser‑optimized bitcoinjs‑lib bundle from jsDelivr.  This
+         script exposes a global `bitcoinjs` object and includes its own
+         Buffer implementation, so no separate Buffer polyfill is required. -->
+    <script src="https://cdn.jsdelivr.net/npm/bitcoinjs-lib-browser@5.1.7/bitcoinjs.min.js"></script>
+    <!-- Load local bitcoinjs build only as a fallback in case the CDN fails. -->
+    <script src="bitcoinjs.min.js"></script>
+    <script src="qrcode.min.js"></script>
+
+    <!--
+      Load the English BIP39 wordlist.  This file defines a global
+      `englishWordlist` array containing 2048 words.  Including it as a
+      separate script avoids the need for network requests or cross‑origin
+      fetches when running this page locally via the file:// protocol.
+    -->
+    <script src="english.min.js"></script>
+
+    <!--
+      Wallet logic
+      -------------
+      The following script implements the minimal pieces of BIP39 needed to
+      create a mnemonic and derive a seed using the browser's built‑in
+      WebCrypto API.  It then derives a deterministic keypair using
+      bitcoinjs‑lib and generates a Frencoin P2PKH address.  The entire
+      process happens client‑side; nothing is ever sent over the network.
+    -->
+    <script>
+      // Frencoin network parameters (pubKeyHash, scriptHash, WIF, BIP32)
+      const frencoin = {
+        messagePrefix: '\x18Fren Signed Message:\n',
+        bip32: {
+          public: 0x0488b21e,
+          private: 0x0488ade4,
+        },
+        pubKeyHash: 35,
+        scriptHash: 95,
+        wif: 128,
+      };
+
+      // BIP44 derivation path for Frencoin (coin type 42066)
+      const derivationPath = "m/44'/42066'/0'/0/0";
+
+      // UI elements
+      const generateBtn = document.getElementById('generateBtn');
+      const walletDiv   = document.getElementById('wallet');
+      const mnemonicEl  = document.getElementById('mnemonic');
+      const addressEl   = document.getElementById('address');
+      const wifEl       = document.getElementById('wif');
+      const revealMnemonicBtn = document.getElementById('revealMnemonicBtn');
+      const revealWIFBtn = document.getElementById('revealWIFBtn');
+      // Elements for sending coins have been removed.  See comment above.
+
+      // Convert a Uint8Array to a binary string
+      function bytesToBinary(bytes) {
+        return Array.from(bytes)
+          .map(b => b.toString(2).padStart(8, '0'))
+          .join('');
+      }
+
+      // Generate a 12‑word mnemonic using the provided wordlist.  Entropy
+      // strength is fixed at 128 bits (16 bytes), producing 12 words with
+      // a 4‑bit checksum.  See BIP39 for details.
+      async function generateMnemonic(wordlist) {
+        const entropy = new Uint8Array(16);
+        // Fill entropy with cryptographically strong random values
+        window.crypto.getRandomValues(entropy);
+        // Compute SHA‑256 hash of entropy to obtain checksum
+        const hashBuffer = await crypto.subtle.digest('SHA-256', entropy);
+        const hashArray  = new Uint8Array(hashBuffer);
+        const entropyBits = bytesToBinary(entropy);
+        const hashBits    = bytesToBinary(hashArray);
+        // First (entropy.length * 8 / 32) bits of hash are checksum
+        const checksumBits = hashBits.slice(0, entropy.length * 8 / 32);
+        const bits = entropyBits + checksumBits;
+        const words = [];
+        for (let i = 0; i < bits.length; i += 11) {
+          const index = parseInt(bits.slice(i, i + 11), 2);
+          words.push(wordlist[index]);
+        }
+        return words.join(' ');
+      }
+
+      // Derive a 64‑byte seed from a mnemonic and optional passphrase using
+      // PBKDF2‑HMAC‑SHA512 as specified by BIP39.  The passphrase is left
+      // blank intentionally; users should keep their mnemonic secure.
+      async function mnemonicToSeed(mnemonic, passphrase = '') {
+        const enc = new TextEncoder();
+        const mnemonicNorm   = mnemonic.normalize('NFKD');
+        const passphraseNorm = passphrase.normalize('NFKD');
+        const salt = 'mnemonic' + passphraseNorm;
+        // Import the mnemonic as key material for PBKDF2
+        const keyMaterial = await crypto.subtle.importKey(
+          'raw',
+          enc.encode(mnemonicNorm),
+          { name: 'PBKDF2' },
+          false,
+          ['deriveBits']
+        );
+        const derivedBits = await crypto.subtle.deriveBits(
+          {
+            name: 'PBKDF2',
+            salt: enc.encode(salt),
+            iterations: 2048,
+            hash: 'SHA-512',
+          },
+          keyMaterial,
+          512
+        );
+        return new Uint8Array(derivedBits);
+      }
+
+      // Convert Uint8Array to hex string
+      function bytesToHex(bytes) {
+        return Array.from(bytes)
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+      }
+
+      async function generateWallet() {
+        try {
+          // Generate mnemonic using the English wordlist defined in english.min.js
+          const mnemonic = await generateMnemonic(window.englishWordlist);
+          // Derive seed bytes from mnemonic
+          const seedBytes = await mnemonicToSeed(mnemonic);
+          const seedHex   = bytesToHex(seedBytes);
+          // Determine a Buffer implementation.  The browser‑optimized
+          // bitcoinjs bundle provides its own Buffer under bitcoinjs.Buffer.
+          // Fall back to the global Buffer if it exists (e.g. Node polyfill).
+          const BufferImpl =
+            typeof Buffer !== 'undefined'
+              ? Buffer
+              : bitcoinjs && bitcoinjs.Buffer
+              ? bitcoinjs.Buffer
+              : undefined;
+          if (!BufferImpl || typeof BufferImpl.from !== 'function') {
+            throw new Error('Buffer implementation not found. Ensure bitcoinjs is loaded.');
+          }
+          // Use bitcoinjs to derive keypair for Frencoin
+          const root  = bitcoinjs.bip32.fromSeed(BufferImpl.from(seedHex, 'hex'), frencoin);
+          const child = root.derivePath(derivationPath);
+          const { address } = bitcoinjs.payments.p2pkh({
+            pubkey: child.publicKey,
+            network: frencoin,
+          });
+          const wif = child.toWIF();
+          // Update UI
+          mnemonicEl.textContent = mnemonic;
+          // Hide the recovery phrase by default and reset reveal button text
+          mnemonicEl.style.display = 'none';
+          revealMnemonicBtn.textContent = 'Reveal recovery phrase';
+          addressEl.textContent  = address;
+          wifEl.value            = wif;
+          // Hide private key by default and reset reveal button text
+          wifEl.style.display   = 'none';
+          revealWIFBtn.textContent = 'Reveal private key';
+          // Generate QR code
+          const qrContainer = document.getElementById('qrcode');
+          qrContainer.innerHTML = '';
+          new QRCode(qrContainer, {
+            text: address,
+            width: 160,
+            height: 160,
+          });
+          walletDiv.classList.remove('hidden');
+          // Persist wallet data so it can be restored on refresh
+          saveWalletData(mnemonic, address, wif);
+          // Query the explorer for balance and transactions
+          updateWalletInfo(address);
+          // Set up periodic refresh every 60 seconds to update balance and recent transactions.
+          if (window.walletUpdateInterval) {
+            clearInterval(window.walletUpdateInterval);
+          }
+          window.walletUpdateInterval = setInterval(() => {
+            updateWalletInfo(address);
+          }, 60000);
+        } catch (err) {
+          // Show any errors for debugging
+          mnemonicEl.textContent = 'Error: ' + (err && err.message ? err.message : err);
+          addressEl.textContent = '';
+          wifEl.value = '';
+          walletDiv.classList.remove('hidden');
+          console.error(err);
+        }
+      }
+
+      // When the user clicks "Generate New Wallet" we first check if
+      // there is already a mnemonic saved in localStorage.  If so,
+      // prompt the user for confirmation.  Generating a new wallet
+      // replaces the current saved wallet; if they cancel, no action
+      // occurs.  Otherwise, clear the saved wallet and proceed.
+      generateBtn.addEventListener('click', () => {
+        const existing = localStorage.getItem('frencoinMnemonic');
+        if (existing) {
+          const ok = window.confirm(
+            'A wallet is already loaded. Generating a new wallet will replace your saved wallet. Make sure you have backed up your recovery phrase.\n\nDo you want to continue?'
+          );
+          if (!ok) {
+            return;
+          }
+          clearWalletData();
+        }
+        generateWallet();
+      });
+
+      // Toggle display of the recovery phrase when the reveal button is clicked.
+      revealMnemonicBtn.addEventListener('click', () => {
+        if (mnemonicEl.style.display === 'none') {
+          mnemonicEl.style.display = 'block';
+          revealMnemonicBtn.textContent = 'Hide recovery phrase';
+        } else {
+          mnemonicEl.style.display = 'none';
+          revealMnemonicBtn.textContent = 'Reveal recovery phrase';
+        }
+      });
+
+      // Toggle display of the private key when its reveal button is clicked.
+      revealWIFBtn.addEventListener('click', () => {
+        if (wifEl.style.display === 'none') {
+          wifEl.style.display = 'block';
+          revealWIFBtn.textContent = 'Hide private key';
+        } else {
+          wifEl.style.display = 'none';
+          revealWIFBtn.textContent = 'Reveal private key';
+        }
+      });
+
+      // Send button functionality removed; see comment above.
+
+      // Elements for restoring a wallet
+      const restoreBtn    = document.getElementById('restoreBtn');
+      const restoreInput  = document.getElementById('restoreInput');
+      restoreBtn.addEventListener('click', restoreWallet);
+
+      // Restore a wallet from a mnemonic entered by the user.  This uses the
+      // same derivation logic as the generate function: derive a seed from
+      // the mnemonic, then derive the first external address using the
+      // standard BIP44 path for Frencoin.  It handles basic validation
+      // (must be 12 words) and reports errors to the UI.
+      async function restoreWallet() {
+        const phrase = restoreInput.value.trim();
+        try {
+          if (!phrase) {
+            mnemonicEl.textContent = 'Please enter a mnemonic.';
+            walletDiv.classList.remove('hidden');
+            return;
+          }
+          // Validate that exactly 12 words are provided
+          const words = phrase.split(/\s+/).filter(Boolean);
+          if (words.length !== 12) {
+            mnemonicEl.textContent = 'Invalid recovery phrase. It must contain exactly 12 words.';
+            walletDiv.classList.remove('hidden');
+            return;
+          }
+          // Derive seed from mnemonic (no passphrase) using PBKDF2-HMAC-SHA512
+          const seedBytes = await mnemonicToSeed(phrase);
+          const seedHex   = bytesToHex(seedBytes);
+          // Determine a Buffer implementation (see generateWallet for details)
+          const BufferImpl =
+            typeof Buffer !== 'undefined'
+              ? Buffer
+              : bitcoinjs && bitcoinjs.Buffer
+              ? bitcoinjs.Buffer
+              : undefined;
+          if (!BufferImpl || typeof BufferImpl.from !== 'function') {
+            throw new Error('Buffer implementation not found. Ensure bitcoinjs is loaded.');
+          }
+          // Derive keypair and address
+          const root  = bitcoinjs.bip32.fromSeed(BufferImpl.from(seedHex, 'hex'), frencoin);
+          const child = root.derivePath(derivationPath);
+          const { address } = bitcoinjs.payments.p2pkh({
+            pubkey: child.publicKey,
+            network: frencoin,
+          });
+          const wif = child.toWIF();
+          // Update UI
+          mnemonicEl.textContent = phrase;
+          // Hide recovery phrase by default and reset reveal button text
+          mnemonicEl.style.display = 'none';
+          revealMnemonicBtn.textContent = 'Reveal recovery phrase';
+          addressEl.textContent  = address;
+          wifEl.value            = wif;
+          // Hide private key by default and reset reveal button text
+          wifEl.style.display   = 'none';
+          revealWIFBtn.textContent = 'Reveal private key';
+          // Generate QR code
+          const qrContainer = document.getElementById('qrcode');
+          qrContainer.innerHTML = '';
+          new QRCode(qrContainer, {
+            text: address,
+            width: 160,
+            height: 160,
+          });
+          // Persist wallet data so it can be restored on refresh
+          saveWalletData(phrase, address, wif);
+          // Query the explorer for balance and transactions
+          updateWalletInfo(address);
+          // Set up periodic refresh every 60 seconds to update balance and transactions
+          if (window.walletUpdateInterval) {
+            clearInterval(window.walletUpdateInterval);
+          }
+          window.walletUpdateInterval = setInterval(() => {
+            updateWalletInfo(address);
+          }, 60000);
+          walletDiv.classList.remove('hidden');
+        } catch (err) {
+          mnemonicEl.textContent = 'Error: ' + (err && err.message ? err.message : err);
+          addressEl.textContent  = '';
+          wifEl.value = '';
+          walletDiv.classList.remove('hidden');
+          console.error(err);
+        }
+      }
+
+  /**
+   * Fetch balance and recent transactions for the given address using the
+   * Solus FREN explorer API.  Updates the Balance and transaction
+   * sections of the UI.  If the API call fails (for example, due to
+   * network issues or CORS restrictions) the balance will remain unset
+   * and the transaction table will be empty.  See
+   * https://cryptoscope.io/fren/api/ for API details【233322587309618†L449-L500】.
+   *
+   * @param {string} address The Frencoin address to query.
+   */
+  function updateWalletInfo(address) {
+    const balanceEl = document.getElementById('balance');
+    const txTableBody = document.getElementById('txTable').querySelector('tbody');
+    // Reset UI to placeholder values while loading
+    balanceEl.textContent = 'Loading...';
+    txTableBody.innerHTML = '';
+    // Use CORS proxy to bypass cross‑origin restrictions when running
+    // from a local or static site.  If you host this wallet on the
+    // same domain as the explorer API you can remove the corsproxy.io
+    // prefix.  The proxy forwards the request and injects
+    // permissive CORS headers【591943239385297†L0-L16】.
+    const url = `https://corsproxy.io/https://cryptoscope.io/fren/api/getaddress/?address=${encodeURIComponent(address)}`;
+    fetch(url)
+      .then(resp => resp.json())
+      .then(data => {
+        // Update balance
+        if (data && typeof data.balance !== 'undefined') {
+          balanceEl.textContent = parseFloat(data.balance).toLocaleString(undefined, { maximumFractionDigits: 8 }) + ' FREN';
+        } else {
+          balanceEl.textContent = '0 FREN';
+        }
+        // Populate recent transactions (limit to 10 rows for brevity).  Each
+        // entry in data.last_txs contains:
+        //   tx_time (seconds since epoch), block_ix (block index), txid (string),
+        //   amount (float), is_reward (boolean).  Display the full txid and
+        //   parse the amount as a float.  Negative amounts indicate sent
+        //   transactions.  Use the browser's locale for date formatting.
+        if (Array.isArray(data.last_txs)) {
+          data.last_txs.slice(0, 10).forEach(tx => {
+            const tr = document.createElement('tr');
+            // Convert the timestamp (seconds) to milliseconds for Date.
+            const date = new Date(tx.tx_time * 1000);
+            // Determine transaction type based on amount and reward flag.
+            let type;
+            if (tx.is_reward) {
+              type = 'Reward';
+            } else if (typeof tx.amount === 'string' && tx.amount.trim().startsWith('-')) {
+              type = 'Sent';
+            } else if (typeof tx.amount === 'number' && tx.amount < 0) {
+              type = 'Sent';
+            } else {
+              type = 'Received';
+            }
+            // Convert amount to a float and format with up to 8 decimals.
+            const amt = typeof tx.amount === 'string' ? parseFloat(tx.amount) : tx.amount;
+            const amtFormatted = (typeof amt === 'number' && !isNaN(amt))
+              ? amt.toLocaleString(undefined, { maximumFractionDigits: 8 })
+              : tx.amount;
+            // Use the full transaction ID; linking to the explorer allows
+            // users to click through for details.  Do not truncate the ID,
+            // which caused confusion in earlier versions.
+            tr.innerHTML =
+              `<td>${date.toLocaleString()}</td>` +
+              `<td>${amtFormatted}</td>` +
+              `<td>${type}</td>` +
+              `<td><a href="https://cryptoscope.io/fren/tx/?txid=${tx.txid}" target="_blank" rel="noopener noreferrer">${tx.txid}</a></td>`;
+            txTableBody.appendChild(tr);
+          });
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch address info', err);
+        // Display a placeholder indicating that the balance could not be fetched.
+        balanceEl.textContent = '— (balance unavailable)';
+      });
+  }
+
+  /**
+   * Persist wallet data to localStorage.  This stores the mnemonic, address
+   * and WIF so that the wallet can be automatically restored on
+   * subsequent visits.  Storing the mnemonic in localStorage means
+   * anyone with access to this browser profile could potentially
+   * retrieve it; use with caution.
+   *
+   * @param {string} mnemonic
+   * @param {string} address
+   * @param {string} wif
+   */
+  function saveWalletData(mnemonic, address, wif) {
+    try {
+      localStorage.setItem('frencoinMnemonic', mnemonic);
+      localStorage.setItem('frencoinAddress', address);
+      localStorage.setItem('frencoinWIF', wif);
+    } catch (e) {
+      console.warn('Failed to save wallet data', e);
+    }
+  }
+
+  /**
+   * Remove any saved wallet data from localStorage.
+   */
+  function clearWalletData() {
+    try {
+      localStorage.removeItem('frencoinMnemonic');
+      localStorage.removeItem('frencoinAddress');
+      localStorage.removeItem('frencoinWIF');
+    } catch (e) {
+      console.warn('Failed to clear wallet data', e);
+    }
+  }
+
+  /**
+   * Attempt to load a previously saved wallet from localStorage.  If a
+   * saved mnemonic exists, sets it in the restore input field and
+   * derives the wallet.  Returns a Promise that resolves to true if a
+   * wallet was loaded and false otherwise.
+   */
+  async function loadSavedWallet() {
+    try {
+      const savedMnemonic = localStorage.getItem('frencoinMnemonic');
+      if (savedMnemonic) {
+        // Temporarily set restore input to trigger wallet restore
+        restoreInput.value = savedMnemonic;
+        await restoreWallet();
+        // Clear the restore input so the phrase is not displayed
+        restoreInput.value = '';
+        return true;
+      }
+    } catch (e) {
+      console.warn('Failed to load saved wallet', e);
+    }
+    return false;
+  }
+
+  // On page load, automatically restore any saved wallet.  This runs
+  // after the DOM is ready so that all elements exist.
+  window.addEventListener('DOMContentLoaded', () => {
+    loadSavedWallet();
+  });
+    </script>
+  </body>
+</html>

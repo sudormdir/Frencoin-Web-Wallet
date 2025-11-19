@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html>
+<body>
+<p id="out">Loading...</p>
+<script type="module">
+  import * as m from './web-bip39.esm.js';
+  document.getElementById('out').textContent = 'Loaded: ' + Object.keys(m).join(',');
+</script>
+</body>
+</html>
