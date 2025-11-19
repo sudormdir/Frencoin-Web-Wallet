@@ -45,7 +45,7 @@ backend infrastructure to maintain.
 ## Security considerations
 
 While this wallet is convenient for receiving funds, it does **not**
-connect to the Frencoin network to display balances or send
+connect to the Frencoin network to display balances (it does so via the CryptoScope API) or send
 transactions.  For full wallet functionality (viewing UTXOs,
 constructing and broadcasting transactions) additional RPC or API
 endpoints would be required.  This design choice keeps the codebase
