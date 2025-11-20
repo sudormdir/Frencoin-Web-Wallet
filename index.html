@@ -34,10 +34,10 @@
         margin: 0;
       }
       .boxed-heading {
-      display: inline-block;           /* so the box wraps just the text */
-      background: rgba(255, 255, 255, 0.85);  /* white, slightly transparent */
-      padding: 0.25em 0.5em;           /* space around the text */
-      border-radius: 4px;              /* optional: rounded corners */
+      display: inline-block;           
+      background: rgba(255, 255, 255, 0.85);  
+      padding: 0.25em 0.5em;           
+      border-radius: 4px;              
       }
       .wallet-container {
         max-width: 600px;
@@ -71,6 +71,15 @@
     including sends, use your 12 words to restore your wallet in either the official node or electrum wallet.</h1>
     <h4> <a href="https://github.com/Apushii/frencoin/releases"> Node Wallet</a></h4>
     <h4> <a href="https://github.com/Apushii/electrum-frencoin/releases"> Official Electrum Wallet (Beta) </a></h4>
+          <div class="form-group" style="margin-top:30px;">
+          <h4>If you already own a wallet and know its 12 words, restore it here:</h4>
+          <label for="restoreInput">Restore from recovery phrase</label>
+          <textarea id="restoreInput" class="form-control" rows="2"
+            placeholder="Enter your 12‑word mnemonic"></textarea>
+          <button id="restoreBtn" class="btn btn-success" style="margin-top:10px;">
+            Restore Wallet
+          </button>
+        </div>
         <p>
           This lightweight wallet runs entirely in your browser.  Click the
           button below to generate a new 12‑word recovery phrase and the
@@ -79,15 +88,6 @@
         <div class="text-center">
           <button id="generateBtn" class="btn btn-primary">
             Generate New Wallet
-          </button>
-        </div>
-        <div class="form-group" style="margin-top:30px;">
-          <h4>If you already own a wallet and know its 12 words, restore them here:</h4>
-          <label for="restoreInput">Restore from recovery phrase</label>
-          <textarea id="restoreInput" class="form-control" rows="2"
-            placeholder="Enter your 12‑word mnemonic"></textarea>
-          <button id="restoreBtn" class="btn btn-success" style="margin-top:10px;">
-            Restore Wallet
           </button>
         </div>
 
@@ -158,6 +158,7 @@
               </tbody>
             </table>
           <h2> All site code is <a href="https://github.com/sudormdir/Frencoin-Web-Wallet/tree/main"> open source </a></h2>
+            <p>For added security, clone the repo and open index.html in your browser</p>
           </div>
         </div>
       </div>
